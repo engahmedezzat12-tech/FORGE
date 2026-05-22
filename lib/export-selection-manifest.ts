@@ -9,6 +9,16 @@ export interface SelectionManifestItem {
 export interface ExportSelectionManifest {
   enrichmentConnectors: SelectionManifestItem[];
   responseActions: SelectionManifestItem[];
+  requiredConnectorKeys: string[];
+  sourceStepMapping: {
+    enrichmentConnectors: 'Step 4';
+    responseActions: 'Step 6';
+    requiredConnectorKeys: 'Step 4 + Step 6 + Template';
+  };
+  generatedWorkflowCoverage: {
+    supportedActions: SelectionManifestItem[];
+    unsupportedActions: SelectionManifestItem[];
+  };
 }
 
 function unique(items: SelectionManifestItem[]): SelectionManifestItem[] {
@@ -20,7 +30,11 @@ function unique(items: SelectionManifestItem[]): SelectionManifestItem[] {
   });
 }
 
-export function buildExportSelectionManifest(playbook: PlaybookState): ExportSelectionManifest {
+export function buildExportSelectionManifest(
+  playbook: PlaybookState,
+  requiredConnectorKeys: string[],
+  supportedActionIds: string[],
+): ExportSelectionManifest {
   const enrichmentConnectors = unique(
     (playbook.enrichmentConnectors ?? []).map((id) => {
       return { id, label: id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) };
@@ -30,11 +44,28 @@ export function buildExportSelectionManifest(playbook: PlaybookState): ExportSel
   const responseActions = unique(
     (playbook.actions ?? []).map((id) => {
       const action = getActionById(id);
-      return { id, label: action?.name ?? id };
+      return { id, label: action?.displayName ?? id };
     }),
   );
 
-  return { enrichmentConnectors, responseActions };
+  const supportedActionIdSet = new Set(supportedActionIds);
+  const supportedActions = responseActions.filter((a) => supportedActionIdSet.has(a.id));
+  const unsupportedActions = responseActions.filter((a) => !supportedActionIdSet.has(a.id));
+
+  return {
+    enrichmentConnectors,
+    responseActions,
+    requiredConnectorKeys: Array.from(new Set(requiredConnectorKeys)),
+    sourceStepMapping: {
+      enrichmentConnectors: 'Step 4',
+      responseActions: 'Step 6',
+      requiredConnectorKeys: 'Step 4 + Step 6 + Template',
+    },
+    generatedWorkflowCoverage: {
+      supportedActions,
+      unsupportedActions,
+    },
+  };
 }
 
 export function renderSelectionManifestMarkdown(manifest: ExportSelectionManifest): string {
@@ -45,6 +76,16 @@ export function renderSelectionManifestMarkdown(manifest: ExportSelectionManifes
     ? manifest.responseActions.map((a) => `- ${a.label} (\`${a.id}\`)`).join('\n')
     : '- None selected';
 
+  const requiredConnectorKeys = manifest.requiredConnectorKeys.length > 0
+    ? manifest.requiredConnectorKeys.map((k) => `- \`${k}\``).join('\n')
+    : '- None resolved';
+  const supportedActions = manifest.generatedWorkflowCoverage.supportedActions.length > 0
+    ? manifest.generatedWorkflowCoverage.supportedActions.map((a) => `- ${a.label} (\`${a.id}\`)`).join('\n')
+    : '- None';
+  const unsupportedActions = manifest.generatedWorkflowCoverage.unsupportedActions.length > 0
+    ? manifest.generatedWorkflowCoverage.unsupportedActions.map((a) => `- ${a.label} (\`${a.id}\`)`).join('\n')
+    : '- None';
+
   return [
     '## Wizard Selection Manifest',
     '',
@@ -53,5 +94,20 @@ export function renderSelectionManifestMarkdown(manifest: ExportSelectionManifes
     '',
     '### Step 6 — Response Actions',
     actions,
+    '',
+    '### Required Connector Keys',
+    requiredConnectorKeys,
+    '',
+    '### Source Step Mapping',
+    '- Enrichment Connectors: Step 4',
+    '- Response Actions: Step 6',
+    '- Required Connector Keys: Step 4 + Step 6 + Template',
+    '',
+    '### Generated Workflow Coverage',
+    '#### Supported Actions (generated as workflow nodes where supported)',
+    supportedActions,
+    '',
+    '#### Unsupported Actions (documented; manual implementation may be needed)',
+    unsupportedActions,
   ].join('\n');
 }

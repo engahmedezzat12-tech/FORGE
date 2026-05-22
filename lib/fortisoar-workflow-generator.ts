@@ -2253,6 +2253,56 @@ export function generateFortiSOARWorkflowCollection(
 // Deployment Profile Builder
 // ============================================================================
 
+
+export function getMergedRequiredConnectorKeys(playbook: PlaybookState): string[] {
+  const templateKey = playbook.templateId || playbook.generatorType || '';
+  const canonicalKeys: string[] = CANONICAL_CONNECTOR_SETS[templateKey] ?? [];
+  const enrichmentKeys = playbook.enrichmentConnectors ?? [];
+  const actionKeys = getRequiredConnectorsForActions(playbook.actions ?? []);
+
+  const merged = Array.from(new Set([...canonicalKeys, ...enrichmentKeys, ...actionKeys]));
+  if (merged.length === 0) return ['groupib_edr', 'active_directory'];
+  return merged;
+}
+
+/**
+ * Deterministic export validation helper used by tests/CI-less validation.
+ * Returns merged connector keys and whether each is present in the deployment profile.
+ */
+export function validateMergedConnectorCoverage(
+  playbook: PlaybookState,
+  profile: FortiSOARDeploymentProfile,
+): { mergedConnectorKeys: string[]; missingInProfile: string[] } {
+  const mergedConnectorKeys = getMergedRequiredConnectorKeys(playbook);
+  const missingInProfile = mergedConnectorKeys.filter((key) => !profile.connectors?.[key]);
+  return { mergedConnectorKeys, missingInProfile };
+}
+
+const WORKFLOW_GENERATED_ACTION_IDS = new Set([
+  "isolate_endpoint","disable_ad_user","disable_account","submit_hash_sandbox",
+  "submit_file_to_sandbox","notify_soc","send_teams_notification","create_servicenow_incident",
+  "create_ticket","search_asset_by_hostname","block_ip_paloalto","block_ip_fortigate",
+  "quarantine_email","block_sender","abuseipdb_lookup","virustotal_hash_lookup",
+  "virustotal_ip_lookup","virustotal_domain_lookup","lookup_duplicate_ticket",
+  "revoke_azure_sessions","release_email",
+]);
+
+export function getWorkflowGeneratedActionIds(): string[] {
+  return Array.from(WORKFLOW_GENERATED_ACTION_IDS);
+}
+
+export function normalizeDeploymentProfileForSelections(
+  profile: FortiSOARDeploymentProfile,
+  playbook: PlaybookState,
+): FortiSOARDeploymentProfile {
+  const requiredKeys = getMergedRequiredConnectorKeys(playbook);
+  const connectors = { ...(profile.connectors ?? {}) };
+  for (const key of requiredKeys) {
+    if (!connectors[key]) connectors[key] = buildConnectorConfig(key);
+  }
+  return { ...profile, connectors, updatedAt: new Date().toISOString() };
+}
+
 // Canonical per-template connector sets — mirrors template-utils.ts TEMPLATE_CONNECTOR_SETS.
 // Kept in sync here so buildDefaultDeploymentProfile doesn't need to import template-utils.
 const CANONICAL_CONNECTOR_SETS: Record<string, string[]> = {
@@ -2270,18 +2320,7 @@ const CANONICAL_CONNECTOR_SETS: Record<string, string[]> = {
 export function buildDefaultDeploymentProfile(
   playbook: PlaybookState
 ): FortiSOARDeploymentProfile {
-  // Priority: canonical template set → action-derived connectors → fallback defaults
-  const templateKey = playbook.templateId || playbook.generatorType || '';
-  const canonicalKeys: string[] = CANONICAL_CONNECTOR_SETS[templateKey] ?? [];
-  const actionKeys = getRequiredConnectorsForActions(playbook.actions);
-
-  // Merge: canonical first, then action-derived (no duplicates)
-  const allKeys = Array.from(new Set([...canonicalKeys, ...actionKeys]));
-
-  // Ensure at least basic defaults for custom/unknown templates
-  if (allKeys.length === 0) {
-    allKeys.push('groupib_edr', 'active_directory');
-  }
+  const allKeys = getMergedRequiredConnectorKeys(playbook);
 
   const connectors: Record<string, FortiSOARConnectorConfig> = {};
   for (const k of allKeys) connectors[k] = buildConnectorConfig(k);
@@ -2325,9 +2364,26 @@ export function generateReadinessChecks(
   checks.push({ id: "scoring_model_selected", label: "Scoring model selected", category: "scoring", passed: !!playbook.scoringModel?.type && (playbook.scoringModel.type as string) !== "", critical: true, fixStepNumber: 5 });
   checks.push({ id: "actions_selected", label: "Response actions selected", category: "actions", passed: playbook.actions.length > 0, critical: true, fixStepNumber: 6 });
 
-  const connectorStatuses = Object.entries(profile.connectors).map(([key, connector]) => ({
-    key, connector, status: validateConfigValue(connector.config),
-  }));
+  const { mergedConnectorKeys, missingInProfile } = validateMergedConnectorCoverage(playbook, profile);
+  const connectorStatuses = mergedConnectorKeys
+    .filter((key) => profile.connectors?.[key])
+    .map((key) => {
+      const connector = profile.connectors[key];
+      return { key, connector, status: validateConfigValue(connector.config) };
+    });
+
+  for (const missingKey of missingInProfile) {
+    checks.push({
+      id: `connector_required_${missingKey}`,
+      label: `Required connector present: ${missingKey}`,
+      category: 'connectors',
+      passed: false,
+      critical: true,
+      fixStepNumber: 11,
+      note: `Missing required connector "${missingKey}" from deployment profile.`,
+      fixConnectorKey: missingKey,
+    });
+  }
 
   const fakeConnectors = connectorStatuses.filter((c) => c.status === "fake");
   const emptyConnectors = connectorStatuses.filter((c) => c.status === "empty");

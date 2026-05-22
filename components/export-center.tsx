@@ -13,6 +13,9 @@ import {
   buildDefaultDeploymentProfile,
   generateFortiSOARWorkflowCollection,
   validateConfigValue,
+  getMergedRequiredConnectorKeys,
+  normalizeDeploymentProfileForSelections,
+  getWorkflowGeneratedActionIds,
   type ConfigValidationStatus,
   type FortiSOARExportPackage,
 } from '@/lib/fortisoar-workflow-generator';
@@ -238,7 +241,9 @@ export default function ExportCenter() {
 
   // ── Build all exports ──────────────────────────────────────────────────────
   const exports = useMemo(() => {
-    const profile = deploymentProfile || buildDefaultDeploymentProfile(playbook);
+    const baseProfile = deploymentProfile || buildDefaultDeploymentProfile(playbook);
+    const profile = normalizeDeploymentProfileForSelections(baseProfile, playbook);
+    const mergedRequiredKeys = getMergedRequiredConnectorKeys(playbook);
     const slug = playbook.name.toLowerCase().replace(/\s+/g, '-') || 'soarforge';
 
     // FortiSOAR path — use existing generator
@@ -323,7 +328,7 @@ export default function ExportCenter() {
       'This delivery pack separates design maturity from runtime certification. Production activation requires tenant connector validation, permission checks, and non-production execution evidence.',
     ].join('\n');
 
-    const selectionManifest = buildExportSelectionManifest(playbook);
+    const selectionManifest = buildExportSelectionManifest(playbook, mergedRequiredKeys, getWorkflowGeneratedActionIds());
     const selectionManifestMarkdown = renderSelectionManifestMarkdown(selectionManifest);
 
     // Platform-specific export via adapter
@@ -350,7 +355,7 @@ export default function ExportCenter() {
 
     // Generate customer documentation
     const customerDoc = generateCustomerDocument(playbook, normalized, targetPlatform);
-    const customerDocMarkdown = exportCustomerDocMarkdown(customerDoc);
+    const customerDocMarkdown = [exportCustomerDocMarkdown(customerDoc), selectionManifestMarkdown].join('\n\n---\n\n');
     const customerDocHTML = exportCustomerDocHTML(customerDoc, true);
 
     // Full deployment package — platform-aware, never leaks FortiSOAR data to non-FortiSOAR
@@ -385,7 +390,7 @@ export default function ExportCenter() {
       normalized_blueprint: JSON.stringify(normalized, null, 2),
       threat_coverage_report: threatCoverageMarkdown,
       intelligence_review: intelligenceReviewMarkdown,
-      customer_delivery_pack: customerDeliveryPackMarkdown,
+      customer_delivery_pack: [customerDeliveryPackMarkdown, selectionManifestMarkdown].join('\n\n---\n\n'),
       platform_export: JSON.stringify(platformContent, null, 2),
       full_package: JSON.stringify(fullPackage, null, 2),
       documentation: adapterDocumentation,
