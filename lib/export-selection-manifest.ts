@@ -1,5 +1,6 @@
 import type { PlaybookState } from './soar-types';
 import { getActionById } from './fortisoar-action-registry';
+import { getMergedRequiredConnectorKeys } from './fortisoar-workflow-generator';
 
 export interface SelectionManifestItem {
   id: string;
@@ -9,6 +10,12 @@ export interface SelectionManifestItem {
 export interface ExportSelectionManifest {
   enrichmentConnectors: SelectionManifestItem[];
   responseActions: SelectionManifestItem[];
+  requiredConnectorKeys: string[];
+  sourceStepMapping: Record<string, string>;
+  generatedWorkflowCoverage: {
+    supportedActions: SelectionManifestItem[];
+    unsupportedActions: SelectionManifestItem[];
+  };
 }
 
 function unique(items: SelectionManifestItem[]): SelectionManifestItem[] {
@@ -33,8 +40,25 @@ export function buildExportSelectionManifest(playbook: PlaybookState): ExportSel
       return { id, label: action?.displayName ?? id };
     }),
   );
+  const requiredConnectorKeys = getMergedRequiredConnectorKeys(playbook);
+  const supportedActions = unique(
+    responseActions.filter((a) => !!getActionById(a.id)),
+  );
+  const unsupportedActions = unique(
+    responseActions.filter((a) => !getActionById(a.id)),
+  );
 
-  return { enrichmentConnectors, responseActions };
+  return {
+    enrichmentConnectors,
+    responseActions,
+    requiredConnectorKeys,
+    sourceStepMapping: {
+      enrichmentConnectors: 'Step 4',
+      responseActions: 'Step 6',
+      requiredConnectorKeys: 'Step 4 + Step 6 + template defaults',
+    },
+    generatedWorkflowCoverage: { supportedActions, unsupportedActions },
+  };
 }
 
 export function renderSelectionManifestMarkdown(manifest: ExportSelectionManifest): string {

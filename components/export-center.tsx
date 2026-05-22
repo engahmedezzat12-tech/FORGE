@@ -10,7 +10,7 @@ import {
 import { useState, useMemo } from 'react';
 import {
   generateFortiSOARExportPackage,
-  buildDefaultDeploymentProfile,
+  normalizeDeploymentProfileForSelections,
   generateFortiSOARWorkflowCollection,
   validateConfigValue,
   type ConfigValidationStatus,
@@ -238,7 +238,7 @@ export default function ExportCenter() {
 
   // ── Build all exports ──────────────────────────────────────────────────────
   const exports = useMemo(() => {
-    const profile = deploymentProfile || buildDefaultDeploymentProfile(playbook);
+    const profile = normalizeDeploymentProfileForSelections(deploymentProfile, playbook);
     const slug = playbook.name.toLowerCase().replace(/\s+/g, '-') || 'soarforge';
 
     // FortiSOAR path — use existing generator

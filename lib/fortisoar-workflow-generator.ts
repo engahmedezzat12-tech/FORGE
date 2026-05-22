@@ -2272,13 +2272,7 @@ export function buildDefaultDeploymentProfile(
   playbook: PlaybookState
 ): FortiSOARDeploymentProfile {
   // Priority: canonical template set → action-derived connectors → fallback defaults
-  const templateKey = playbook.templateId || playbook.generatorType || '';
-  const canonicalKeys: string[] = CANONICAL_CONNECTOR_SETS[templateKey] ?? [];
-  const actionKeys = getRequiredConnectorsForActions(playbook.actions);
-  const enrichmentKeys = (playbook.enrichmentConnectors ?? []).filter((id) => !!FORTISOAR_CONNECTOR_TEMPLATES[id]);
-
-  // Merge: canonical first, then explicit wizard selections (enrichment/actions), no duplicates
-  const allKeys = Array.from(new Set([...canonicalKeys, ...enrichmentKeys, ...actionKeys]));
+  const allKeys = getMergedRequiredConnectorKeys(playbook);
 
   // Ensure at least basic defaults for custom/unknown templates
   if (allKeys.length === 0) {
@@ -2307,6 +2301,27 @@ export function buildDefaultDeploymentProfile(
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+export function getMergedRequiredConnectorKeys(playbook: PlaybookState): string[] {
+  const templateKey = playbook.templateId || playbook.generatorType || '';
+  const canonicalKeys: string[] = CANONICAL_CONNECTOR_SETS[templateKey] ?? [];
+  const actionKeys = getRequiredConnectorsForActions(playbook.actions);
+  const enrichmentKeys = (playbook.enrichmentConnectors ?? []).filter((id) => !!FORTISOAR_CONNECTOR_TEMPLATES[id]);
+  return Array.from(new Set([...canonicalKeys, ...enrichmentKeys, ...actionKeys]));
+}
+
+export function normalizeDeploymentProfileForSelections(
+  profile: FortiSOARDeploymentProfile | null | undefined,
+  playbook: PlaybookState,
+): FortiSOARDeploymentProfile {
+  const base = profile ?? buildDefaultDeploymentProfile(playbook);
+  const requiredKeys = getMergedRequiredConnectorKeys(playbook);
+  const connectors = { ...(base.connectors ?? {}) };
+  for (const key of requiredKeys) {
+    if (!connectors[key]) connectors[key] = buildConnectorConfig(key);
+  }
+  return { ...base, connectors, updatedAt: new Date().toISOString() };
 }
 
 // ============================================================================
