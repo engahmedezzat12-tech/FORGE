@@ -2230,7 +2230,10 @@ export function generateFortiSOARWorkflowCollection(
     "@context": "/api/3/contexts/WorkflowCollection",
     "@type": "WorkflowCollection",
     name: profile.targetCollectionName || `SOARForge-${playbook.name}`,
-    description: playbook.description || null,
+    description: [
+      playbook.description || null,
+      `Selection Manifest | Step4 Enrichment: ${(playbook.enrichmentConnectors ?? []).join(', ') || 'none'} | Step6 Actions: ${(playbook.actions ?? []).join(', ') || 'none'}`,
+    ].filter(Boolean).join('\n'),
     visible: true,
     image: null,
     uuid: collectionUuid,
