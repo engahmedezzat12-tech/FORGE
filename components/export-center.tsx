@@ -338,7 +338,7 @@ export default function ExportCenter() {
       platformContent = fortiPkg.workflowCollection;
       platformFileName = `${slug}_${pMeta.filenameSuffix}.json`;
       adapterDocumentation = buildFortiSOARDocumentation(fortiPkg, selectionManifestMarkdown);
-      connectorChecklist = buildFortiSOARConnectorChecklist(profile);
+      connectorChecklist = buildFortiSOARConnectorChecklist(profile, playbook);
     } else {
       const adapter = getPlatformAdapter(targetPlatform);
       const result = adapter.generateExport(normalized, {});
@@ -994,9 +994,12 @@ function buildFortiSOARDocumentation(pkg: FortiSOARExportPackage, selectionManif
   ].join('\n\n---\n\n');
 }
 
-function buildFortiSOARConnectorChecklist(profile: FortiSOARDeploymentProfile | null): string {
+function buildFortiSOARConnectorChecklist(profile: FortiSOARDeploymentProfile | null, playbook: { enrichmentConnectors?: string[]; actions?: string[] }): string {
   if (!profile) return '# Connector Checklist\n\nNo deployment profile available.';
   const lines = ['# FortiSOAR Connector Configuration Checklist\n'];
+  lines.push('## Wizard Selection Coverage');
+  lines.push(`- Selected Step 4 enrichment connectors: ${(playbook.enrichmentConnectors ?? []).join(', ') || 'None'}`);
+  lines.push(`- Selected Step 6 response actions: ${(playbook.actions ?? []).join(', ') || 'None'}\n`);
   for (const [key, conn] of Object.entries(profile.connectors ?? {})) {
     const c = conn as { displayName: string; config: string; isConfigured?: boolean };
     lines.push(`## ${c.displayName}`);

@@ -2274,9 +2274,10 @@ export function buildDefaultDeploymentProfile(
   const templateKey = playbook.templateId || playbook.generatorType || '';
   const canonicalKeys: string[] = CANONICAL_CONNECTOR_SETS[templateKey] ?? [];
   const actionKeys = getRequiredConnectorsForActions(playbook.actions);
+  const enrichmentKeys = (playbook.enrichmentConnectors ?? []).filter((id) => !!FORTISOAR_CONNECTOR_TEMPLATES[id]);
 
-  // Merge: canonical first, then action-derived (no duplicates)
-  const allKeys = Array.from(new Set([...canonicalKeys, ...actionKeys]));
+  // Merge: canonical first, then explicit wizard selections (enrichment/actions), no duplicates
+  const allKeys = Array.from(new Set([...canonicalKeys, ...enrichmentKeys, ...actionKeys]));
 
   // Ensure at least basic defaults for custom/unknown templates
   if (allKeys.length === 0) {
@@ -2440,6 +2441,13 @@ function generateImplementationGuide(playbook: PlaybookState, profile: FortiSOAR
 
 ## Overview
 ${playbook.description || "SOARForge generated playbook."}
+
+## Wizard Selections
+### Step 4 — Enrichment Connectors
+${(playbook.enrichmentConnectors ?? []).length > 0 ? (playbook.enrichmentConnectors ?? []).map((id) => `- ${id}`).join('\n') : '- None selected'}
+
+### Step 6 — Response Actions
+${(playbook.actions ?? []).length > 0 ? (playbook.actions ?? []).map((id) => `- ${id}`).join('\n') : '- None selected'}
 
 ## Required Connectors
 ${Object.values(profile.connectors).map((c) => `- ${c.displayName} (${c.connector} v${c.version})`).join("\n")}
