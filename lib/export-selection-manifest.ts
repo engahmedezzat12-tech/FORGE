@@ -30,7 +30,7 @@ export function buildExportSelectionManifest(playbook: PlaybookState): ExportSel
   const responseActions = unique(
     (playbook.actions ?? []).map((id) => {
       const action = getActionById(id);
-      return { id, label: action?.name ?? id };
+      return { id, label: action?.displayName ?? id };
     }),
   );
 

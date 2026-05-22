@@ -20,6 +20,7 @@ import {
   getActionById,
   buildConnectorConfig,
   getRequiredConnectorsForActions,
+  FORTISOAR_CONNECTOR_TEMPLATES,
 } from "./fortisoar-action-registry";
 import type { PlaybookState } from "./soar-types";
 
