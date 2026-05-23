@@ -20,6 +20,7 @@ import {
   getActionById,
   buildConnectorConfig,
   getRequiredConnectorsForActions,
+  FORTISOAR_CONNECTOR_TEMPLATES,
 } from "./fortisoar-action-registry";
 import type { PlaybookState } from "./soar-types";
 
@@ -2230,7 +2231,10 @@ export function generateFortiSOARWorkflowCollection(
     "@context": "/api/3/contexts/WorkflowCollection",
     "@type": "WorkflowCollection",
     name: profile.targetCollectionName || `SOARForge-${playbook.name}`,
-    description: playbook.description || null,
+    description: [
+      playbook.description || null,
+      `Selection Manifest | Step4 Enrichment: ${(playbook.enrichmentConnectors ?? []).join(', ') || 'none'} | Step6 Actions: ${(playbook.actions ?? []).join(', ') || 'none'}`,
+    ].filter(Boolean).join('\n'),
     visible: true,
     image: null,
     uuid: collectionUuid,
@@ -2268,12 +2272,7 @@ export function buildDefaultDeploymentProfile(
   playbook: PlaybookState
 ): FortiSOARDeploymentProfile {
   // Priority: canonical template set → action-derived connectors → fallback defaults
-  const templateKey = playbook.templateId || playbook.generatorType || '';
-  const canonicalKeys: string[] = CANONICAL_CONNECTOR_SETS[templateKey] ?? [];
-  const actionKeys = getRequiredConnectorsForActions(playbook.actions);
-
-  // Merge: canonical first, then action-derived (no duplicates)
-  const allKeys = Array.from(new Set([...canonicalKeys, ...actionKeys]));
+  const allKeys = getMergedRequiredConnectorKeys(playbook);
 
   // Ensure at least basic defaults for custom/unknown templates
   if (allKeys.length === 0) {
@@ -2302,6 +2301,27 @@ export function buildDefaultDeploymentProfile(
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+}
+
+export function getMergedRequiredConnectorKeys(playbook: PlaybookState): string[] {
+  const templateKey = playbook.templateId || playbook.generatorType || '';
+  const canonicalKeys: string[] = CANONICAL_CONNECTOR_SETS[templateKey] ?? [];
+  const actionKeys = getRequiredConnectorsForActions(playbook.actions);
+  const enrichmentKeys = (playbook.enrichmentConnectors ?? []).filter((id) => !!FORTISOAR_CONNECTOR_TEMPLATES[id]);
+  return Array.from(new Set([...canonicalKeys, ...enrichmentKeys, ...actionKeys]));
+}
+
+export function normalizeDeploymentProfileForSelections(
+  profile: FortiSOARDeploymentProfile | null | undefined,
+  playbook: PlaybookState,
+): FortiSOARDeploymentProfile {
+  const base = profile ?? buildDefaultDeploymentProfile(playbook);
+  const requiredKeys = getMergedRequiredConnectorKeys(playbook);
+  const connectors = { ...(base.connectors ?? {}) };
+  for (const key of requiredKeys) {
+    if (!connectors[key]) connectors[key] = buildConnectorConfig(key);
+  }
+  return { ...base, connectors, updatedAt: new Date().toISOString() };
 }
 
 // ============================================================================
@@ -2437,6 +2457,13 @@ function generateImplementationGuide(playbook: PlaybookState, profile: FortiSOAR
 
 ## Overview
 ${playbook.description || "SOARForge generated playbook."}
+
+## Wizard Selections
+### Step 4 — Enrichment Connectors
+${(playbook.enrichmentConnectors ?? []).length > 0 ? (playbook.enrichmentConnectors ?? []).map((id) => `- ${id}`).join('\n') : '- None selected'}
+
+### Step 6 — Response Actions
+${(playbook.actions ?? []).length > 0 ? (playbook.actions ?? []).map((id) => `- ${id}`).join('\n') : '- None selected'}
 
 ## Required Connectors
 ${Object.values(profile.connectors).map((c) => `- ${c.displayName} (${c.connector} v${c.version})`).join("\n")}

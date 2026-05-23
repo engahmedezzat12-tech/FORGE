@@ -10,7 +10,7 @@ import {
 import { useState, useMemo } from 'react';
 import {
   generateFortiSOARExportPackage,
-  buildDefaultDeploymentProfile,
+  normalizeDeploymentProfileForSelections,
   generateFortiSOARWorkflowCollection,
   validateConfigValue,
   type ConfigValidationStatus,
@@ -39,6 +39,7 @@ import { analyzeThreatCoverage, exportThreatCoverageMarkdown } from '@/lib/threa
 import { IntelligenceReviewPanel } from '@/components/intelligence/intelligence-review-panel';
 import { analyzePlaybookIntelligence } from '@/lib/intelligence/recommendation-engine';
 import { exportIntelligenceReviewMarkdown } from '@/lib/intelligence/intelligence-report-export';
+import { buildExportSelectionManifest, renderSelectionManifestMarkdown } from '@/lib/export-selection-manifest';
 
 // ── Per-platform export card metadata ───────────────────────────────────────
 
@@ -237,7 +238,7 @@ export default function ExportCenter() {
 
   // ── Build all exports ──────────────────────────────────────────────────────
   const exports = useMemo(() => {
-    const profile = deploymentProfile || buildDefaultDeploymentProfile(playbook);
+    const profile = normalizeDeploymentProfileForSelections(deploymentProfile, playbook);
     const slug = playbook.name.toLowerCase().replace(/\s+/g, '-') || 'soarforge';
 
     // FortiSOAR path — use existing generator
@@ -322,6 +323,9 @@ export default function ExportCenter() {
       'This delivery pack separates design maturity from runtime certification. Production activation requires tenant connector validation, permission checks, and non-production execution evidence.',
     ].join('\n');
 
+    const selectionManifest = buildExportSelectionManifest(playbook);
+    const selectionManifestMarkdown = renderSelectionManifestMarkdown(selectionManifest);
+
     // Platform-specific export via adapter
     let platformContent: unknown;
     let platformFileName: string;
@@ -333,14 +337,14 @@ export default function ExportCenter() {
     if (targetPlatform === 'fortisoar') {
       platformContent = fortiPkg.workflowCollection;
       platformFileName = `${slug}_${pMeta.filenameSuffix}.json`;
-      adapterDocumentation = buildFortiSOARDocumentation(fortiPkg);
-      connectorChecklist = buildFortiSOARConnectorChecklist(profile);
+      adapterDocumentation = buildFortiSOARDocumentation(fortiPkg, selectionManifestMarkdown);
+      connectorChecklist = buildFortiSOARConnectorChecklist(profile, playbook);
     } else {
       const adapter = getPlatformAdapter(targetPlatform);
       const result = adapter.generateExport(normalized, {});
       platformContent = result.content;
       platformFileName = `${slug}_${pMeta.filenameSuffix}.json`;
-      adapterDocumentation = adapter.generateDocumentation(normalized);
+      adapterDocumentation = [adapter.generateDocumentation(normalized), selectionManifestMarkdown].join('\n\n---\n\n');
       connectorChecklist = adapter.generateConnectorChecklist(normalized);
     }
 
@@ -369,6 +373,7 @@ export default function ExportCenter() {
       customerDeliveryPack: customerDeliveryPackMarkdown,
       platformSpecificExport: platformContent,
       deploymentProfile: targetPlatform === 'fortisoar' ? profile : null,
+      selectionManifest,
       connectorMapping: connectorChecklist,
       readinessChecks: fortiPkg.readinessChecks,
       documentation: adapterDocumentation,
@@ -376,7 +381,7 @@ export default function ExportCenter() {
     };
 
     return {
-      project_state: JSON.stringify(playbook, null, 2),
+      project_state: JSON.stringify({ ...playbook, selectionManifest }, null, 2),
       normalized_blueprint: JSON.stringify(normalized, null, 2),
       threat_coverage_report: threatCoverageMarkdown,
       intelligence_review: intelligenceReviewMarkdown,
@@ -977,7 +982,7 @@ function QAMatrixReport({
 
 // ── Documentation helpers ────────────────────────────────────────────────────
 
-function buildFortiSOARDocumentation(pkg: FortiSOARExportPackage): string {
+function buildFortiSOARDocumentation(pkg: FortiSOARExportPackage, selectionManifestMarkdown: string): string {
   return [
     pkg.documentation.implementationGuide,
     pkg.documentation.uatTestPlan,
@@ -985,12 +990,16 @@ function buildFortiSOARDocumentation(pkg: FortiSOARExportPackage): string {
     pkg.documentation.connectorMatrix,
     pkg.documentation.mitreMapping,
     pkg.documentation.knownLimitations,
+    selectionManifestMarkdown,
   ].join('\n\n---\n\n');
 }
 
-function buildFortiSOARConnectorChecklist(profile: FortiSOARDeploymentProfile | null): string {
+function buildFortiSOARConnectorChecklist(profile: FortiSOARDeploymentProfile | null, playbook: { enrichmentConnectors?: string[]; actions?: string[] }): string {
   if (!profile) return '# Connector Checklist\n\nNo deployment profile available.';
   const lines = ['# FortiSOAR Connector Configuration Checklist\n'];
+  lines.push('## Wizard Selection Coverage');
+  lines.push(`- Selected Step 4 enrichment connectors: ${(playbook.enrichmentConnectors ?? []).join(', ') || 'None'}`);
+  lines.push(`- Selected Step 6 response actions: ${(playbook.actions ?? []).join(', ') || 'None'}\n`);
   for (const [key, conn] of Object.entries(profile.connectors ?? {})) {
     const c = conn as { displayName: string; config: string; isConfigured?: boolean };
     lines.push(`## ${c.displayName}`);
